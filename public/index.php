@@ -2,7 +2,14 @@
 session_start();
 require_once __DIR__ . '/config/db.php';
 
-$admin_email = "y.yousefahmed26112001@gmail.com";
+// قائمة الأدمنز الـ 4 الرسمية (كلها حروف صغيرة وبدون مسافات)
+$admin_emails = [
+    "y.yousefahmed26112001@gmail.com",
+    "kholoudsaied@gmail.com",
+    "nahlaamer2004@gmail.com",
+    "rizkmariem8@gmail.com"
+];
+
 $is_admin = false;
 
 if (isset($_SESSION['user_id'])) {
@@ -10,8 +17,13 @@ if (isset($_SESSION['user_id'])) {
         $stmt = $pdo->prepare("SELECT email FROM users WHERE id = ?");
         $stmt->execute([$_SESSION['user_id']]);
         $user_data = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($user_data && $user_data['email'] === $admin_email) {
-            $is_admin = true;
+
+        if ($user_data && !empty($user_data['email'])) {
+            $user_email_clean = strtolower(trim($user_data['email']));
+            $admin_emails_clean = array_map('strtolower', array_map('trim', $admin_emails));
+            if (in_array($user_email_clean, $admin_emails_clean)) {
+                $is_admin = true;
+            }
         }
     } catch (Exception $e) {}
 }

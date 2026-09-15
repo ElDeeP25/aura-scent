@@ -2,7 +2,13 @@
 session_start();
 require_once __DIR__ . '/config/db.php';
 
-$admin_email = "y.yousefahmed26112001@gmail.com"; 
+// قائمة الأدمنز الـ 4 الرسمية
+$admin_emails = [
+    "y.yousefahmed26112001@gmail.com",
+    "kholoudsaied@gmail.com",
+    "nahlaamer2004@gmail.com",
+    "rizkmariem8@gmail.com"
+]; 
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: auth.php");
@@ -14,7 +20,10 @@ try {
     $stmt->execute([$_SESSION['user_id']]);
     $current_user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$current_user || $current_user['email'] !== $admin_email) {
+    $user_email_clean = strtolower(trim($current_user['email'] ?? ''));
+    $admin_emails_clean = array_map('strtolower', array_map('trim', $admin_emails));
+
+    if (!$current_user || !in_array($user_email_clean, $admin_emails_clean)) {
         header("Location: index.php");
         exit();
     }
@@ -22,6 +31,8 @@ try {
     header("Location: index.php");
     exit();
 }
+// ==========================================
+// ==========================================
 
 $message = '';
 $error = '';
@@ -141,7 +152,7 @@ try {
         <div class="orb orb-3"></div>
     </div>
 
-    <!-- Admin Header (لا يحتوي على زر Cart) -->
+    <!-- Admin Header -->
     <header class="fixed top-0 left-0 w-full z-50 bg-[#050505]/80 backdrop-blur-xl border-b border-gold/20 shadow-2xl">
         <div class="max-w-7xl mx-auto px-4 sm:px-8 h-20 flex items-center justify-between">
             <a href="index.php" class="text-lg sm:text-xl font-extrabold tracking-[0.2em] sm:tracking-[0.25em] bg-gradient-to-r from-white via-neutral-200 to-gold-light bg-clip-text text-transparent">
