@@ -1,16 +1,17 @@
 <?php
-session_start();
-require_once __DIR__ . '/config/db.php';
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-try {
-    $db_products = $pdo->query("SELECT * FROM products")->fetchAll(PDO::FETCH_ASSOC);
-    $products = [];
-    foreach ($db_products as $prod) { $products[$prod['id']] = $prod; }
-} catch (Exception $e) { $products = []; }
+$db_path = __DIR__ . '/config/db.php';
+if (!file_exists($db_path)) { $db_path = __DIR__ . '/../config/db.php'; }
+if (file_exists($db_path)) { require_once $db_path; }
 
-if (!isset($_SESSION['cart'])) $_SESSION['cart'] = [];
+if (!isset($_SESSION['cart'])) {
+    $_SESSION['cart'] = [];
+}
 
-// إضافة منتج بالسلة (يدعم AJAX + العادي)
+// معالجة إضافة منتج للسلة (يدعم AJAX + العادي)
 if (isset($_GET['add'])) {
     $is_ajax = isset($_GET['ajax']);
 
@@ -25,18 +26,30 @@ if (isset($_GET['add'])) {
         }
     }
 
-    $id = (int)$_GET['add'];
-    if (isset($products[$id])) {
-        if (isset($_SESSION['cart'][$id])) {
-            $_SESSION['cart'][$id]['quantity'] += 1;
-        } else {
-            $_SESSION['cart'][$id] = [
-                'name' => $products[$id]['name'],
-                'price' => $products[$id]['price'],
-                'image' => $products[$id]['image'],
-                'quantity' => 1
-            ];
-        }
+    $id = intval($_GET['add']);
+
+    if ($id > 0 && isset($pdo)) {
+        try {
+            // جلب بيانات المنتج بطلب مباشر من قاعدة البيانات
+            $stmt = $pdo->prepare("SELECT id, name, price, image, image_url FROM products WHERE id = ?");
+            $stmt->execute([$id]);
+            $product_data = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($product_data) {
+                $img = !empty($product_data['image']) ? $product_data['image'] : ($product_data['image_url'] ?? '');
+
+                if (isset($_SESSION['cart'][$id])) {
+                    $_SESSION['cart'][$id]['quantity'] += 1;
+                } else {
+                    $_SESSION['cart'][$id] = [
+                        'name' => $product_data['name'],
+                        'price' => floatval($product_data['price']),
+                        'image' => $img,
+                        'quantity' => 1
+                    ];
+                }
+            }
+        } catch (Exception $e) {}
     }
 
     $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
@@ -54,12 +67,13 @@ if (isset($_GET['add'])) {
 
 // حذف منتج من السلة
 if (isset($_GET['remove'])) {
-    $id = (int)$_GET['remove'];
+    $id = intval($_GET['remove']);
     unset($_SESSION['cart'][$id]);
     header("Location: cart.php");
     exit;
 }
 
+// تأكيد الطلب
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['place_order'])) {
     if (!empty($_SESSION['cart'])) {
         $_SESSION['last_order'] = [
@@ -81,104 +95,124 @@ foreach ($_SESSION['cart'] as $item) { $subtotal += $item['price'] * $item['quan
 $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 ?>
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Checkout & Payment — AURA & SCENT</title>
-
-    <!-- Favicon Icon (Gold SVG) -->
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23070708'/><text x='50%' y='68%' font-family='serif' font-size='65' font-weight='bold' fill='%23d4af37' text-anchor='middle'>A</text></svg>">
+    <title>Checkout & Payment — AURA & SCENT | Sylva Edition</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
-            darkMode: 'class',
             theme: {
                 extend: {
-                    colors: { brand: { gold: '#d4af37', 'gold-light': '#f3e5ab' } },
-                    fontFamily: { serif: ['Playfair Display', 'serif'], sans: ['Plus Jakarta Sans', 'sans-serif'] }
+                    colors: {
+                        sylva: {
+                            base: '#0b130e',
+                            card: '#121f17',
+                            accent: '#2d4a36',
+                            gold: '#d4af37',
+                            light: '#e8ece9'
+                        }
+                    },
+                    fontFamily: {
+                        serif: ['Newsreader', 'Georgia', 'serif'],
+                        sans: ['Plus Jakarta Sans', 'sans-serif']
+                    }
                 }
             }
         }
     </script>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,900&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
-        body { background-color: #070708; color: #fdfbf7; font-family: 'Plus Jakarta Sans', sans-serif; overflow-x: hidden; }
-        .glass-card { background: rgba(18, 18, 20, 0.6); backdrop-filter: blur(25px); border: 1px solid rgba(255, 255, 255, 0.08); }
-        .payment-radio:checked + label { border-color: #d4af37; background: rgba(212, 175, 55, 0.12); box-shadow: 0 0 15px rgba(212, 175, 55, 0.2); }
+        body { background-color: #0b130e; color: #e8ece9; font-family: 'Plus Jakarta Sans', sans-serif; overflow-x: hidden; }
+        
+        .sylva-plate {
+            background: rgba(18, 31, 23, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(212, 175, 55, 0.18);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+        }
+
+        .payment-radio:checked + label {
+            border-color: #d4af37;
+            background: rgba(45, 74, 54, 0.5);
+            box-shadow: 0 0 20px rgba(212, 175, 55, 0.25);
+        }
     </style>
 </head>
-<body class="selection:bg-brand-gold selection:text-black">
+<body class="selection:bg-sylva-gold selection:text-black antialiased">
 
-    <header class="fixed top-0 left-0 w-full z-50 glass-card border-b-0">
-        <div class="max-w-7xl mx-auto px-4 sm:px-8 h-20 sm:h-24 flex items-center justify-between">
-            <a href="index.php" class="font-serif text-lg sm:text-2xl font-bold tracking-[0.2em] sm:tracking-[0.25em] text-white">
-                AURA <span class="text-brand-gold">&</span> SCENT
-            </a>
-            <a href="shop.php" class="text-xs font-semibold tracking-widest uppercase text-neutral-400 hover:text-white">← Return to Shop</a>
-        </div>
-    </header>
+    <!-- Header Navigation -->
+    <?php include __DIR__ . '/header.php'; ?>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-8 pt-32 sm:pt-36 pb-20">
+    <main class="max-w-7xl mx-auto px-4 sm:px-8 pt-36 sm:pt-44 pb-20">
         <?php if (empty($_SESSION['cart'])): ?>
-            <div class="glass-card text-center py-20 px-6 rounded-3xl max-w-xl mx-auto">
-                <h1 class="font-serif text-2xl sm:text-3xl text-white mb-4">Your Shopping Bag is Empty</h1>
-                <p class="text-neutral-400 text-xs uppercase tracking-widest mb-8 font-light">Explore our luxury collection to add items.</p>
-                <a href="shop.php" class="inline-block bg-brand-gold text-black font-bold text-xs uppercase tracking-[0.2em] px-8 py-4 rounded-full hover:bg-white transition-all">
+            <div class="sylva-plate text-center py-20 px-6 rounded-3xl max-w-xl mx-auto">
+                <h1 class="font-serif text-3xl sm:text-4xl text-sylva-light font-light italic mb-4">Your Shopping Bag is Empty</h1>
+                <p class="text-neutral-400 text-xs uppercase tracking-widest mb-8 font-light">Explore our botanical collection to add items.</p>
+                <a href="shop.php" class="inline-block bg-sylva-gold text-black font-extrabold text-xs uppercase tracking-[0.2em] px-8 py-4 rounded-full hover:bg-white transition-all shadow-lg shadow-sylva-gold/20">
                     Explore Editions
                 </a>
             </div>
         <?php else: ?>
-            <h1 class="font-serif text-3xl sm:text-4xl text-white mb-8 sm:mb-12">Checkout & Payment</h1>
+            <div class="mb-10 border-b border-sylva-accent/30 pb-6">
+                <span class="text-xs uppercase tracking-[0.3em] text-sylva-gold font-bold block mb-2">Checkout Process</span>
+                <h1 class="font-serif text-3xl sm:text-5xl font-light italic text-sylva-light">Checkout & Payment</h1>
+            </div>
             
             <form action="cart.php" method="POST" class="grid grid-cols-1 lg:grid-cols-3 gap-8 sm:gap-12">
                 <div class="lg:col-span-2 space-y-8">
                     
+                    <!-- Selected Products Section -->
                     <div class="space-y-4">
-                        <h2 class="text-xs font-bold uppercase tracking-widest text-brand-gold">1. Selected Products</h2>
+                        <h2 class="text-xs font-bold uppercase tracking-widest text-sylva-gold">1. Selected Perfumes</h2>
                         <?php foreach ($_SESSION['cart'] as $id => $item): ?>
-                            <div class="glass-card p-4 sm:p-5 rounded-2xl flex items-center justify-between gap-4">
+                            <div class="sylva-plate p-4 sm:p-5 rounded-2xl flex items-center justify-between gap-4">
                                 <div class="flex items-center gap-4">
-                                    <img src="<?= htmlspecialchars($item['image']) ?>" class="w-16 h-16 object-cover rounded-xl bg-neutral-900">
+                                    <img src="<?= htmlspecialchars($item['image']) ?>" class="w-16 h-16 object-cover rounded-xl bg-sylva-base border border-sylva-accent/40">
                                     <div>
-                                        <h3 class="font-serif text-base text-white mb-1"><?= htmlspecialchars($item['name']) ?></h3>
-                                        <p class="text-brand-gold text-xs font-serif">$<?= number_format($item['price'], 2) ?> × <?= $item['quantity'] ?></p>
+                                        <h3 class="font-serif text-lg text-white mb-1"><?= htmlspecialchars($item['name']) ?></h3>
+                                        <p class="text-sylva-gold text-xs font-serif">$<?= number_format($item['price'], 2) ?> &times; <?= $item['quantity'] ?></p>
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-6">
-                                    <span class="font-bold text-sm text-white">$<?= number_format($item['price'] * $item['quantity'], 2) ?></span>
+                                    <span class="font-serif text-lg text-white">$<?= number_format($item['price'] * $item['quantity'], 2) ?></span>
                                     <a href="cart.php?remove=<?= $id ?>" class="text-red-400 hover:text-red-300 text-xs font-semibold uppercase tracking-widest">Remove</a>
                                 </div>
                             </div>
                         <?php endforeach; ?>
                     </div>
 
-                    <div class="glass-card p-6 sm:p-8 rounded-3xl space-y-4">
-                        <h2 class="text-xs font-bold uppercase tracking-widest text-brand-gold">2. Shipping Address</h2>
+                    <!-- Shipping Address Section -->
+                    <div class="sylva-plate p-6 sm:p-8 rounded-3xl space-y-4">
+                        <h2 class="text-xs font-bold uppercase tracking-widest text-sylva-gold">2. Shipping Address</h2>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">Full Name</label>
-                                <input type="text" name="name" required value="<?= htmlspecialchars($_SESSION['user_name'] ?? '') ?>" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                                <input type="text" name="name" required value="<?= htmlspecialchars($_SESSION['user_name'] ?? '') ?>" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                             </div>
                             <div>
                                 <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">Phone Number</label>
-                                <input type="text" name="phone" required placeholder="01012345678" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                                <input type="text" name="phone" required placeholder="01012345678" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                             </div>
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">Delivery Address</label>
-                            <input type="text" name="address" required placeholder="Street Name, Building / Villa, City" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                            <input type="text" name="address" required placeholder="Street Name, Building / Villa, City" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 sm:p-8 rounded-3xl space-y-6">
-                        <h2 class="text-xs font-bold uppercase tracking-widest text-brand-gold">3. Select Payment Method</h2>
+                    <!-- Payment Method Selection -->
+                    <div class="sylva-plate p-6 sm:p-8 rounded-3xl space-y-6">
+                        <h2 class="text-xs font-bold uppercase tracking-widest text-sylva-gold">3. Select Payment Method</h2>
 
                         <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                             <div>
                                 <input type="radio" id="pay_visa" name="payment_method" value="visa" class="hidden payment-radio" checked onclick="switchPayment('visa')">
-                                <label for="pay_visa" class="glass-card p-4 rounded-2xl border border-white/10 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-brand-gold/50 h-full">
+                                <label for="pay_visa" class="sylva-plate p-4 rounded-2xl border border-sylva-accent/40 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-sylva-gold/50 h-full">
                                     <div class="flex items-center gap-1.5 mb-2">
                                         <span class="bg-blue-600 text-white font-black text-[9px] italic px-1.5 py-0.5 rounded tracking-tighter">VISA</span>
                                         <div class="flex -space-x-1">
@@ -193,7 +227,7 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 
                             <div>
                                 <input type="radio" id="pay_vodafone" name="payment_method" value="vodafone" class="hidden payment-radio" onclick="switchPayment('vodafone')">
-                                <label for="pay_vodafone" class="glass-card p-4 rounded-2xl border border-white/10 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-brand-gold/50 h-full">
+                                <label for="pay_vodafone" class="sylva-plate p-4 rounded-2xl border border-sylva-accent/40 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-sylva-gold/50 h-full">
                                     <div class="w-6 h-6 bg-red-600 rounded-full flex items-center justify-center font-bold text-white text-[11px] mb-2">V</div>
                                     <span class="text-xs font-bold text-white">Vodafone Cash</span>
                                     <span class="text-[9px] text-neutral-400">Smart Wallet</span>
@@ -202,7 +236,7 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 
                             <div>
                                 <input type="radio" id="pay_fawry" name="payment_method" value="fawry" class="hidden payment-radio" onclick="switchPayment('fawry')">
-                                <label for="pay_fawry" class="glass-card p-4 rounded-2xl border border-white/10 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-brand-gold/50 h-full">
+                                <label for="pay_fawry" class="sylva-plate p-4 rounded-2xl border border-sylva-accent/40 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-sylva-gold/50 h-full">
                                     <div class="bg-yellow-400 text-black px-2 py-0.5 rounded font-black text-[10px] tracking-tighter mb-2">FAWRY</div>
                                     <span class="text-xs font-bold text-white">Fawry</span>
                                     <span class="text-[9px] text-neutral-400">Pay at Store</span>
@@ -211,7 +245,7 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 
                             <div>
                                 <input type="radio" id="pay_paypal" name="payment_method" value="paypal" class="hidden payment-radio" onclick="switchPayment('paypal')">
-                                <label for="pay_paypal" class="glass-card p-4 rounded-2xl border border-white/10 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-brand-gold/50 h-full">
+                                <label for="pay_paypal" class="sylva-plate p-4 rounded-2xl border border-sylva-accent/40 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-sylva-gold/50 h-full">
                                     <div class="font-black text-blue-400 text-sm italic tracking-tighter mb-2">Pay<span class="text-blue-200">Pal</span></div>
                                     <span class="text-xs font-bold text-white">PayPal</span>
                                     <span class="text-[9px] text-neutral-400">Global Account</span>
@@ -220,7 +254,7 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 
                             <div>
                                 <input type="radio" id="pay_payoneer" name="payment_method" value="payoneer" class="hidden payment-radio" onclick="switchPayment('payoneer')">
-                                <label for="pay_payoneer" class="glass-card p-4 rounded-2xl border border-white/10 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-brand-gold/50 h-full">
+                                <label for="pay_payoneer" class="sylva-plate p-4 rounded-2xl border border-sylva-accent/40 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-sylva-gold/50 h-full">
                                     <div class="flex items-center gap-1 mb-2">
                                         <span class="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-red-500 via-yellow-500 to-green-500"></span>
                                         <span class="font-black text-white text-[11px] tracking-tight">Payoneer</span>
@@ -232,7 +266,7 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
 
                             <div>
                                 <input type="radio" id="pay_binance" name="payment_method" value="binance" class="hidden payment-radio" onclick="switchPayment('binance')">
-                                <label for="pay_binance" class="glass-card p-4 rounded-2xl border border-white/10 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-brand-gold/50 h-full">
+                                <label for="pay_binance" class="sylva-plate p-4 rounded-2xl border border-sylva-accent/40 flex flex-col items-center justify-center text-center cursor-pointer transition-all hover:border-sylva-gold/50 h-full">
                                     <div class="flex items-center gap-1 text-yellow-400 font-bold text-[11px] mb-2"><span class="text-xs">❖</span> BINANCE</div>
                                     <span class="text-xs font-bold text-white">Binance Pay</span>
                                     <span class="text-[9px] text-neutral-400">Crypto (USDT/BTC)</span>
@@ -240,29 +274,30 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
                             </div>
                         </div>
 
-                        <div id="payment-fields" class="pt-4 border-t border-white/10">
+                        <!-- Payment Input Fields -->
+                        <div id="payment-fields" class="pt-4 border-t border-sylva-accent/30">
                             <div id="field-visa" class="space-y-4">
                                 <div>
                                     <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">Card Number</label>
-                                    <input type="text" placeholder="4000 1234 5678 9010" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                                    <input type="text" placeholder="4000 1234 5678 9010" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                                 </div>
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">Expiry Date</label>
-                                        <input type="text" placeholder="MM/YY" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                                        <input type="text" placeholder="MM/YY" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                                     </div>
                                     <div>
                                         <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">CVV Security Code</label>
-                                        <input type="password" placeholder="123" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                                        <input type="password" placeholder="123" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                                     </div>
                                 </div>
                             </div>
 
                             <div id="field-vodafone" class="hidden space-y-3">
-                                <p class="text-xs text-neutral-300">Transfer total amount to Vodafone Wallet Number: <strong class="text-brand-gold font-mono">01099998877</strong></p>
+                                <p class="text-xs text-neutral-300">Transfer total amount to Vodafone Wallet Number: <strong class="text-sylva-gold font-mono">01099998877</strong></p>
                                 <div>
                                     <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">Sender Wallet Number</label>
-                                    <input type="text" placeholder="010XXXXXXXX" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                                    <input type="text" placeholder="010XXXXXXXX" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                                 </div>
                             </div>
 
@@ -277,7 +312,7 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
                             <div id="field-payoneer" class="hidden space-y-3 text-xs text-neutral-300">
                                 <div>
                                     <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">Payoneer Email Address</label>
-                                    <input type="email" placeholder="your-email@payoneer.com" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                                    <input type="email" placeholder="your-email@payoneer.com" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                                 </div>
                             </div>
 
@@ -285,7 +320,7 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
                                 <p>Binance Pay PayID: <strong class="text-yellow-400 font-mono">289384920</strong></p>
                                 <div>
                                     <label class="block text-[10px] font-bold uppercase tracking-[0.2em] text-neutral-400 mb-2">Binance Transaction ID (TxID)</label>
-                                    <input type="text" placeholder="Enter TxID after transfer" class="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-brand-gold">
+                                    <input type="text" placeholder="Enter TxID after transfer" class="w-full bg-sylva-base/80 border border-sylva-accent/50 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-sylva-gold">
                                 </div>
                             </div>
                         </div>
@@ -293,28 +328,29 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
                     </div>
                 </div>
 
-                <div class="glass-card p-6 sm:p-8 rounded-3xl h-fit space-y-6">
-                    <h3 class="font-serif text-xl text-white border-b border-white/5 pb-4">Order Summary</h3>
+                <!-- Order Summary Sidebar -->
+                <div class="sylva-plate p-6 sm:p-8 rounded-3xl h-fit space-y-6">
+                    <h3 class="font-serif text-2xl font-light italic text-sylva-light border-b border-sylva-accent/30 pb-4">Order Summary</h3>
                     
                     <div class="flex justify-between text-xs text-neutral-400">
                         <span>Items Subtotal</span>
-                        <span class="text-white font-serif">$<?= number_format($subtotal, 2) ?></span>
+                        <span class="text-white font-serif text-sm">$<?= number_format($subtotal, 2) ?></span>
                     </div>
                     <div class="flex justify-between text-xs text-neutral-400">
                         <span>Delivery</span>
-                        <span class="text-brand-gold">Free</span>
+                        <span class="text-sylva-gold uppercase font-bold text-[10px] tracking-wider">Free Complementary</span>
                     </div>
 
-                    <div class="flex justify-between text-base border-t border-white/5 pt-4 font-serif">
+                    <div class="flex justify-between text-base border-t border-sylva-accent/30 pt-4 font-serif">
                         <span class="text-white">Total Amount</span>
-                        <span class="text-brand-gold">$<?= number_format($subtotal, 2) ?></span>
+                        <span class="text-sylva-gold font-bold text-xl">$<?= number_format($subtotal, 2) ?></span>
                     </div>
 
-                    <button type="submit" name="place_order" class="w-full bg-brand-gold text-black py-4 rounded-full font-bold text-xs uppercase tracking-[0.2em] hover:bg-white transition-all shadow-xl">
+                    <button type="submit" name="place_order" class="w-full bg-sylva-gold text-black py-4 rounded-full font-extrabold text-xs uppercase tracking-[0.2em] hover:bg-white transition-all shadow-xl shadow-sylva-gold/20 cursor-pointer">
                         Confirm & Pay Now
                     </button>
                     
-                    <div class="flex items-center justify-center gap-3 text-[10px] text-neutral-500 uppercase tracking-widest pt-2">
+                    <div class="flex items-center justify-center gap-2 text-[10px] text-neutral-400 uppercase tracking-widest pt-2">
                         <span>🔒 256-Bit Encrypted Payment</span>
                     </div>
                 </div>
@@ -329,5 +365,14 @@ $cart_count = array_sum(array_column($_SESSION['cart'], 'quantity'));
             document.getElementById('field-' + type).classList.remove('hidden');
         }
     </script>
+    <?php include __DIR__ . '/ai-widget.php'; ?>
+    <?php include __DIR__ . '/footer.php'; ?>
+
+    <!-- تضمين الخلفية المتحركة -->
+    <?php 
+    $bg_file = __DIR__ . '/bg-animation.php';
+    if (!file_exists($bg_file)) { $bg_file = __DIR__ . '/../bg-animation.php'; }
+    if (file_exists($bg_file)) { include $bg_file; }
+    ?>
 </body>
 </html>
